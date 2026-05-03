@@ -1,4 +1,4 @@
-﻿// Pulse — tiny life logger
+// Pulse — tiny life logger
 //
 // Install:
 //   dotnet publish -c Release -r linux-x64 --self-contained true /p:PublishSingleFile=true
@@ -35,6 +35,9 @@ public sealed class PulseEvent
     [JsonPropertyName("note")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Note { get; set; }
+
+    [JsonPropertyName("important")]
+    public bool Important { get; set; } = false;
 
     [JsonPropertyName("source")]
     public string Source { get; set; } = "cli";
@@ -86,6 +89,23 @@ public sealed class ParsedCommand
     public List<string> Tags { get; init; } = new();
 }
 
+public enum TreeScopeKind
+{
+    Day,
+    Week,
+    Month,
+    Range
+}
+
+public sealed class TreeQuery
+{
+    public TreeScopeKind Scope { get; set; } = TreeScopeKind.Day;
+    public bool ImportantOnly { get; set; } = false;
+    public DateOnly Start { get; set; } = DateOnly.FromDateTime(DateTime.Now);
+    public DateOnly End { get; set; } = DateOnly.FromDateTime(DateTime.Now);
+    public string Title { get; set; } = "";
+}
+
 public static class Program
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -121,6 +141,7 @@ public static class Program
     {
         try
         {
+            Console.OutputEncoding = Encoding.UTF8;
             Directory.CreateDirectory(ConfigDir);
             Directory.CreateDirectory(DataDir);
             EnsureDefaultConfig();
@@ -131,7 +152,11 @@ public static class Program
                 return 0;
             }
 
-            string cmd = NormalizeCommand(args[0]);
+            string rawCmd = args[0].Trim();
+            bool commandMarkedImportant = rawCmd.EndsWith("!", StringComparison.Ordinal);
+            string rawCmdWithoutBang = commandMarkedImportant ? rawCmd[..^1] : rawCmd;
+
+            string cmd = NormalizeCommand(rawCmdWithoutBang);
             string[] rest = args.Skip(1).ToArray();
 
             return cmd switch
@@ -140,19 +165,20 @@ public static class Program
                 "where" => CmdWhere(rest),
                 "config" => CmdConfig(rest),
                 "day" => CmdDay(rest),
+                "tree" => CmdTree(rest),
                 "year" => CmdYear(rest),
                 "today" => CmdDay(Array.Empty<string>()),
-                "yesterday" => CmdDay(new[] { DateOnly.FromDateTime(DateTime.Now.AddDays(-1)).ToString("yyyy-MM-dd") }),
+                "yesterday" => CmdDay(new[] { DateOnly.FromDateTime(DateTime.Now.AddDays(-1)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }),
                 "tomorrow" => CmdTomorrow(),
                 "promise" => CmdPromise(rest),
                 "log" => CmdLog(rest),
                 "last" => CmdLast(),
                 "edit" => CmdEdit(rest),
                 "append" => CmdAppend(rest),
-                "sleep" => CmdSleep(rest),
-                _ when ToggleCommands.Contains(cmd) => CmdToggle(cmd, rest),
-                _ when PointCommands.Contains(cmd) => CmdPoint(cmd, rest),
-                _ => CmdCustom(cmd, rest)
+                "sleep" => CmdSleep(rest, commandMarkedImportant),
+                _ when ToggleCommands.Contains(cmd) => CmdToggle(cmd, rest, commandMarkedImportant),
+                _ when PointCommands.Contains(cmd) => CmdPoint(cmd, rest, commandMarkedImportant),
+                _ => CmdCustom(cmd, rest, commandMarkedImportant)
             };
         }
         catch (Exception ex)
@@ -191,6 +217,7 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Shape:");
         Console.WriteLine("  pulse <event> [time] [\"note\"]");
+        Console.WriteLine("  pulse <event>! [time] [\"important note\"]");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  pulse wake \"dream journal: old house\"");
@@ -199,13 +226,28 @@ public static class Program
         Console.WriteLine("  pulse lunch");
         Console.WriteLine("  pulse pain \"left knee hurts going upstairs\"");
         Console.WriteLine("  pulse mood \"sad but steady\" tag:glowbox");
-        Console.WriteLine("  pulse important \"launched comic2panel — first clean push\" tag:github tag:tool");
+        Console.WriteLine("  pulse work! \"fixed category tree renderer\" tag:pulse");
+        Console.WriteLine("  pulse important \"old command still works; logs a starred note\" tag:legacy");
         Console.WriteLine("  pulse sleep");
         Console.WriteLine("  pulse sleep 2:40am \"couldn't sleep because my mind kept running\"");
         Console.WriteLine();
         Console.WriteLine("Reports:");
         Console.WriteLine("  pulse day");
         Console.WriteLine("  pulse day 2026-05-02");
+        Console.WriteLine("  pulse tree");
+        Console.WriteLine("  pulse tree IMPORTANT");
+        Console.WriteLine("  pulse tree 2026-05-02");
+        Console.WriteLine("  pulse tree IMPORTANT 2026-05-02");
+        Console.WriteLine("  pulse tree week");
+        Console.WriteLine("  pulse tree week 2026-05-02");
+        Console.WriteLine("  pulse tree week 2026-W23");
+        Console.WriteLine("  pulse tree week IMPORTANT");
+        Console.WriteLine("  pulse tree week IMPORTANT 2026-W23");
+        Console.WriteLine("  pulse tree month");
+        Console.WriteLine("  pulse tree month 2026-05");
+        Console.WriteLine("  pulse tree month IMPORTANT 2026-05");
+        Console.WriteLine("  pulse tree range 2026-05-01 2026-05-31");
+        Console.WriteLine("  pulse tree range IMPORTANT 2026-05-01 2026-05-31");
         Console.WriteLine("  pulse today");
         Console.WriteLine("  pulse yesterday");
         Console.WriteLine("  pulse tomorrow");
@@ -328,27 +370,38 @@ public static class Program
         return 2;
     }
 
-    private static int CmdPoint(string cmd, string[] rest)
+    private static int CmdPoint(string cmd, string[] rest, bool commandMarkedImportant)
     {
         var parsed = ParseCommand(cmd, rest);
-        var ev = NewEvent(cmd, CategoryForPoint(cmd), parsed.Timestamp, parsed.Note);
+        bool legacyImportantCommand = cmd.Equals("important", StringComparison.OrdinalIgnoreCase);
+
+        string eventType = legacyImportantCommand ? "important" : cmd;
+        string category = legacyImportantCommand ? "note" : CategoryForPoint(cmd);
+
+        var ev = NewEvent(eventType, category, parsed.Timestamp, parsed.Note);
+        ev.Important = commandMarkedImportant || legacyImportantCommand;
         ApplyTags(ev, parsed.Tags);
         AppendEvent(ev);
-        Console.WriteLine($"{Title(cmd)} logged: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
+
+        string mark = ev.Important ? " ★" : "";
+        Console.WriteLine($"{Title(cmd)} logged{mark}: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
         return 0;
     }
 
-    private static int CmdCustom(string cmd, string[] rest)
+    private static int CmdCustom(string cmd, string[] rest, bool commandMarkedImportant)
     {
         var parsed = ParseCommand(cmd, rest);
         var ev = NewEvent(cmd, "custom", parsed.Timestamp, parsed.Note);
+        ev.Important = commandMarkedImportant;
         ApplyTags(ev, parsed.Tags);
         AppendEvent(ev);
-        Console.WriteLine($"{Title(cmd)} logged: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
+
+        string mark = ev.Important ? " ★" : "";
+        Console.WriteLine($"{Title(cmd)} logged{mark}: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
         return 0;
     }
 
-    private static int CmdToggle(string cmd, string[] rest)
+    private static int CmdToggle(string cmd, string[] rest, bool commandMarkedImportant)
     {
         var parsed = ParseCommand(cmd, rest);
         string category = CategoryForToggle(cmd);
@@ -360,6 +413,7 @@ public static class Program
             var duration = Math.Max(0, (int)Math.Round((parsed.Timestamp - start).TotalMinutes));
 
             var ev = NewEvent($"{cmd}_end", category, parsed.Timestamp, parsed.Note);
+            ev.Important = commandMarkedImportant;
             ApplyTags(ev, parsed.Tags);
             SetMeta(ev, "duration_minutes", duration);
             SetMeta(ev, "started_at", open.StartedAt);
@@ -369,11 +423,13 @@ public static class Program
             state.OpenToggles.Remove(cmd);
             SaveState(state);
 
-            Console.WriteLine($"{Title(cmd)} ended: {FriendlyTime(parsed.Timestamp)} ({FormatMinutes(duration)})" + NoteSuffix(parsed.Note));
+            string mark = ev.Important ? " ★" : "";
+            Console.WriteLine($"{Title(cmd)} ended{mark}: {FriendlyTime(parsed.Timestamp)} ({FormatMinutes(duration)})" + NoteSuffix(parsed.Note));
             return 0;
         }
 
         var startEv = NewEvent($"{cmd}_start", category, parsed.Timestamp, parsed.Note);
+        startEv.Important = commandMarkedImportant;
         ApplyTags(startEv, parsed.Tags);
         AppendEvent(startEv);
 
@@ -387,11 +443,12 @@ public static class Program
         };
 
         SaveState(state);
-        Console.WriteLine($"{Title(cmd)} started: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
+        string startMark = startEv.Important ? " ★" : "";
+        Console.WriteLine($"{Title(cmd)} started{startMark}: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
         return 0;
     }
 
-    private static int CmdSleep(string[] rest)
+    private static int CmdSleep(string[] rest, bool commandMarkedImportant)
     {
         var parsed = ParseCommand("sleep", rest);
         var config = LoadConfig();
@@ -399,18 +456,22 @@ public static class Program
         if (parsed.HasExplicitTime)
         {
             var ev = NewEvent("sleep_actual", "sleep", parsed.Timestamp, parsed.Note);
+            ev.Important = commandMarkedImportant;
             ApplyTags(ev, parsed.Tags);
             AppendEvent(ev);
-            Console.WriteLine($"Actual sleep logged: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
+            string mark = ev.Important ? " ★" : "";
+            Console.WriteLine($"Actual sleep logged{mark}: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
             return 0;
         }
 
         var attempt = NewEvent("sleep_attempt", "sleep", parsed.Timestamp, parsed.Note);
+        attempt.Important = commandMarkedImportant;
         ApplyTags(attempt, parsed.Tags);
         SetMeta(attempt, "action", config.SleepAction);
         AppendEvent(attempt, fsync: true);
 
-        Console.WriteLine($"Sleep attempt logged: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
+        string attemptMark = attempt.Important ? " ★" : "";
+        Console.WriteLine($"Sleep attempt logged{attemptMark}: {FriendlyTime(parsed.Timestamp)}" + NoteSuffix(parsed.Note));
 
         if (config.SleepAction == "none")
         {
@@ -557,7 +618,7 @@ public static class Program
         {
             string raw = rest[0].Trim();
 
-            if (!TryParseDay(raw, out day))
+            if (!TryParseDayStrict(raw, out day))
             {
                 Console.Error.WriteLine("usage: pulse day [yyyy-MM-dd]");
                 Console.Error.WriteLine("example: pulse day 2026-05-02");
@@ -584,6 +645,377 @@ public static class Program
         Console.WriteLine();
         PrintCompactDaySummary(events);
         return 0;
+    }
+
+    private static int CmdTree(string[] rest)
+    {
+        if (!TryParseTreeQuery(rest, out var query, out var error))
+        {
+            Console.Error.WriteLine(error);
+            PrintTreeUsage();
+            return 2;
+        }
+
+        var events = ReadEvents()
+            .Where(e => TryParseIso(e.Timestamp, out var ts)
+                && DateOnly.FromDateTime(ts.LocalDateTime) >= query.Start
+                && DateOnly.FromDateTime(ts.LocalDateTime) <= query.End)
+            .Where(e => !query.ImportantOnly || IsImportantEvent(e))
+            .OrderBy(e => ParseIso(e.Timestamp))
+            .ToList();
+
+        Console.WriteLine(query.Title);
+        Console.WriteLine();
+
+        if (events.Count == 0)
+        {
+            Console.WriteLine(query.ImportantOnly ? "No important events found." : "No events found.");
+            return 0;
+        }
+
+        PrintCategoryTree(events, query);
+        Console.WriteLine();
+        PrintTreeSummary(events, query);
+        return 0;
+    }
+
+    private static void PrintTreeUsage()
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("usage:");
+        Console.Error.WriteLine("  pulse tree");
+        Console.Error.WriteLine("  pulse tree IMPORTANT");
+        Console.Error.WriteLine("  pulse tree 2026-05-02");
+        Console.Error.WriteLine("  pulse tree IMPORTANT 2026-05-02");
+        Console.Error.WriteLine("  pulse tree week");
+        Console.Error.WriteLine("  pulse tree week 2026-05-02");
+        Console.Error.WriteLine("  pulse tree week 2026-W23");
+        Console.Error.WriteLine("  pulse tree week IMPORTANT 2026-W23");
+        Console.Error.WriteLine("  pulse tree month");
+        Console.Error.WriteLine("  pulse tree month 2026-05");
+        Console.Error.WriteLine("  pulse tree month IMPORTANT 2026-05");
+        Console.Error.WriteLine("  pulse tree range 2026-05-01 2026-05-31");
+        Console.Error.WriteLine("  pulse tree range IMPORTANT 2026-05-01 2026-05-31");
+    }
+
+    private static bool TryParseTreeQuery(string[] rawArgs, out TreeQuery query, out string error)
+    {
+        query = new TreeQuery();
+        error = "";
+
+        var args = rawArgs
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .ToList();
+
+        bool importantOnly = args.RemoveAll(a => a.Equals("IMPORTANT", StringComparison.OrdinalIgnoreCase)) > 0;
+        query.ImportantOnly = importantOnly;
+
+        DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+
+        if (args.Count == 0)
+        {
+            query.Scope = TreeScopeKind.Day;
+            query.Start = today;
+            query.End = today;
+            query.Title = BuildTreeTitle("Pulse", importantOnly, today.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        string head = args[0].ToLowerInvariant();
+
+        if (head == "week")
+        {
+            query.Scope = TreeScopeKind.Week;
+
+            if (args.Count == 1)
+            {
+                SetIsoWeekContainingDate(query, today);
+                query.Title = BuildTreeTitle("Pulse", importantOnly, $"ISO Week {IsoWeekLabel(query.Start)}");
+                return true;
+            }
+
+            if (args.Count == 2 && TryParseIsoWeek(args[1], out var weekStart, out var weekEnd, out var weekLabel))
+            {
+                query.Start = weekStart;
+                query.End = weekEnd;
+                query.Title = BuildTreeTitle("Pulse", importantOnly, $"ISO Week {weekLabel}");
+                return true;
+            }
+
+            if (args.Count == 2 && TryParseDayStrict(args[1], out var day))
+            {
+                SetIsoWeekContainingDate(query, day);
+                query.Title = BuildTreeTitle("Pulse", importantOnly, $"ISO Week {IsoWeekLabel(query.Start)}");
+                return true;
+            }
+
+            error = "invalid week query; use yyyy-MM-dd or yyyy-Www";
+            return false;
+        }
+
+        if (head == "month")
+        {
+            query.Scope = TreeScopeKind.Month;
+
+            if (args.Count == 1)
+            {
+                var monthStart = new DateOnly(today.Year, today.Month, 1);
+                query.Start = monthStart;
+                query.End = monthStart.AddMonths(1).AddDays(-1);
+                query.Title = BuildTreeTitle("Pulse", importantOnly, monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (args.Count == 2 && TryParseMonth(args[1], out var month))
+            {
+                query.Start = month;
+                query.End = month.AddMonths(1).AddDays(-1);
+                query.Title = BuildTreeTitle("Pulse", importantOnly, month.ToString("MMMM yyyy", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (args.Count == 2 && TryParseDayStrict(args[1], out var day))
+            {
+                var monthStart = new DateOnly(day.Year, day.Month, 1);
+                query.Start = monthStart;
+                query.End = monthStart.AddMonths(1).AddDays(-1);
+                query.Title = BuildTreeTitle("Pulse", importantOnly, monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            error = "invalid month query; use yyyy-MM or yyyy-MM-dd";
+            return false;
+        }
+
+        if (head == "range")
+        {
+            query.Scope = TreeScopeKind.Range;
+
+            if (args.Count == 3 && TryParseDayStrict(args[1], out var start) && TryParseDayStrict(args[2], out var end))
+            {
+                if (end < start)
+                {
+                    error = "range end date cannot be before start date";
+                    return false;
+                }
+
+                query.Start = start;
+                query.End = end;
+                query.Title = BuildTreeTitle("Pulse", importantOnly, $"{start:yyyy-MM-dd} to {end:yyyy-MM-dd}");
+                return true;
+            }
+
+            error = "invalid range query; use pulse tree range yyyy-MM-dd yyyy-MM-dd";
+            return false;
+        }
+
+        if (args.Count == 1 && TryParseDayStrict(args[0], out var directDay))
+        {
+            query.Scope = TreeScopeKind.Day;
+            query.Start = directDay;
+            query.End = directDay;
+            query.Title = BuildTreeTitle("Pulse", importantOnly, directDay.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        error = "invalid tree query";
+        return false;
+    }
+
+    private static string BuildTreeTitle(string root, bool importantOnly, string scope)
+    {
+        return importantOnly ? $"{root} — Important — {scope}" : $"{root} — {scope}";
+    }
+
+    private static void SetIsoWeekContainingDate(TreeQuery query, DateOnly day)
+    {
+        int diff = ((int)day.DayOfWeek + 6) % 7;
+        query.Start = day.AddDays(-diff);
+        query.End = query.Start.AddDays(6);
+    }
+
+    private static string IsoWeekLabel(DateOnly weekStart)
+    {
+        int isoYear = ISOWeek.GetYear(weekStart.ToDateTime(TimeOnly.MinValue));
+        int isoWeek = ISOWeek.GetWeekOfYear(weekStart.ToDateTime(TimeOnly.MinValue));
+        return $"{isoYear}-W{isoWeek:00}";
+    }
+
+    private static bool TryParseIsoWeek(string raw, out DateOnly start, out DateOnly end, out string label)
+    {
+        start = default;
+        end = default;
+        label = "";
+
+        string value = raw.Trim();
+        if (value.Length != 8 || value[4] != '-' || char.ToUpperInvariant(value[5]) != 'W')
+            return false;
+
+        if (!int.TryParse(value[..4], NumberStyles.None, CultureInfo.InvariantCulture, out var year))
+            return false;
+
+        if (!int.TryParse(value[6..8], NumberStyles.None, CultureInfo.InvariantCulture, out var week))
+            return false;
+
+        if (year < 1 || week < 1 || week > ISOWeek.GetWeeksInYear(year))
+            return false;
+
+        DateTime monday = ISOWeek.ToDateTime(year, week, DayOfWeek.Monday);
+        start = DateOnly.FromDateTime(monday);
+        end = start.AddDays(6);
+        label = $"{year}-W{week:00}";
+        return true;
+    }
+
+    private static bool TryParseMonth(string raw, out DateOnly monthStart)
+    {
+        monthStart = default;
+
+        if (!DateOnly.TryParseExact(raw.Trim(), "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            return false;
+
+        monthStart = new DateOnly(parsed.Year, parsed.Month, 1);
+        return true;
+    }
+
+    private static string DisplayCategory(PulseEvent ev)
+    {
+        // Important is a signal, not a tree branch.
+        // New important events are stored under category "note".
+        // This also keeps older saved events with category "important" from forming a separate branch.
+        if (ev.Category.Equals("important", StringComparison.OrdinalIgnoreCase))
+            return "note";
+
+        return string.IsNullOrWhiteSpace(ev.Category) ? "uncategorized" : ev.Category;
+    }
+
+    private static void PrintCategoryTree(List<PulseEvent> events, TreeQuery query)
+    {
+        var groups = events
+            .GroupBy(DisplayCategory)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        for (int gi = 0; gi < groups.Count; gi++)
+        {
+            var group = groups[gi];
+            bool lastGroup = gi == groups.Count - 1;
+            string groupBranch = lastGroup ? "└──" : "├──";
+            string groupPipe = lastGroup ? "    " : "│   ";
+            string betweenPipe = lastGroup ? "" : "│";
+
+            Console.WriteLine($"{groupBranch} {group.Key}");
+
+            var ordered = group.OrderBy(e => ParseIso(e.Timestamp)).ToList();
+            DateTimeOffset? previous = null;
+
+            for (int ei = 0; ei < ordered.Count; ei++)
+            {
+                var ev = ordered[ei];
+                var ts = ParseIso(ev.Timestamp).ToLocalTime();
+                bool lastEvent = ei == ordered.Count - 1;
+
+                if (previous is not null)
+                {
+                    int gapLines = GapLines(previous.Value, ts);
+                    for (int i = 0; i < gapLines; i++)
+                        Console.WriteLine(groupPipe + "│");
+                }
+
+                PrintTreeEvent(ev, query, groupPipe, lastEvent);
+                previous = ts;
+            }
+
+            if (!lastGroup)
+                Console.WriteLine(betweenPipe);
+        }
+    }
+
+    private static int GapLines(DateTimeOffset previous, DateTimeOffset current)
+    {
+        double hours = (current - previous).TotalHours;
+        return Math.Min(3, Math.Max(0, (int)Math.Floor(hours)));
+    }
+
+    private static void PrintTreeEvent(PulseEvent ev, TreeQuery query, string groupPipe, bool lastEvent)
+    {
+        var ts = ParseIso(ev.Timestamp).ToLocalTime();
+        string branch = lastEvent ? "└──" : "├──";
+        string childPipe = lastEvent ? "   " : "│  ";
+        string time = TreeTimeLabel(ts, query.Scope);
+        string marker = IsImportantEvent(ev) ? StarSymbol() : " ";
+        string label = HumanType(ev.Type);
+        string duration = TryGetMetaInt(ev, "duration_minutes", out var mins)
+            ? $" ({FormatMinutes(mins)})"
+            : "";
+        string tags = GetMetaStringArrayDisplay(ev, "tags") is { Length: > 0 } tagText
+            ? $"  [{tagText}]"
+            : "";
+        string note = string.IsNullOrWhiteSpace(ev.Note) ? label : ev.Note + tags;
+
+        string firstPrefix = $"{groupPipe}{branch} {marker} {time}  ";
+        string continuationPrefix = groupPipe + childPipe + new string(' ', 2 + time.Length + 2);
+
+        int terminalWidth = GetTerminalWidth();
+        int noteWidth = Math.Max(20, terminalWidth - continuationPrefix.Length - 2);
+        var lines = WrapTextPreservingParagraphs(note, noteWidth);
+
+        if (lines.Count == 0)
+        {
+            Console.WriteLine(firstPrefix.TrimEnd());
+            return;
+        }
+
+        Console.WriteLine(firstPrefix + lines[0]);
+
+        for (int i = 1; i < lines.Count; i++)
+        {
+            if (lines[i].Length == 0)
+                Console.WriteLine(groupPipe + childPipe);
+            else
+                Console.WriteLine(continuationPrefix + lines[i]);
+        }
+    }
+
+    private static string TreeTimeLabel(DateTimeOffset ts, TreeScopeKind scope)
+    {
+        return scope switch
+        {
+            TreeScopeKind.Day => ts.ToString("h:mm tt", CultureInfo.InvariantCulture).PadLeft(8),
+            TreeScopeKind.Week => ts.ToString("ddd h:mm tt", CultureInfo.InvariantCulture).PadLeft(12),
+            TreeScopeKind.Month => ts.ToString("MMM dd h:mm tt", CultureInfo.InvariantCulture).PadLeft(16),
+            TreeScopeKind.Range => ts.ToString("yyyy-MM-dd h:mm tt", CultureInfo.InvariantCulture).PadLeft(19),
+            _ => ts.ToString("h:mm tt", CultureInfo.InvariantCulture).PadLeft(8)
+        };
+    }
+
+    private static string StarSymbol()
+    {
+        return Console.OutputEncoding.CodePage == Encoding.UTF8.CodePage ? "★" : "*";
+    }
+
+    private static int GetTerminalWidth()
+    {
+        try
+        {
+            return Console.WindowWidth > 0 ? Console.WindowWidth : 80;
+        }
+        catch
+        {
+            return 80;
+        }
+    }
+
+    private static void PrintTreeSummary(List<PulseEvent> events, TreeQuery query)
+    {
+        int important = events.Count(IsImportantEvent);
+        int categories = events
+            .Select(DisplayCategory)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        Console.WriteLine("Summary");
+        Console.WriteLine($"{events.Count} event{Plural(events.Count)} • {categories} categor{(categories == 1 ? "y" : "ies")} • {important} important");
     }
 
     private static void PrintPrettyDayEvents(List<PulseEvent> events)
@@ -627,6 +1059,7 @@ public static class Program
         var ts = ParseIso(ev.Timestamp);
         string time = FriendlyTime(ts).PadLeft(8);
         string label = HumanType(ev.Type).PadRight(10);
+        string star = IsImportantEvent(ev) ? StarSymbol() + " " : "  ";
         string duration = TryGetMetaInt(ev, "duration_minutes", out var mins)
             ? $" ({FormatMinutes(mins)})"
             : "";
@@ -636,19 +1069,10 @@ public static class Program
 
         string note = string.IsNullOrWhiteSpace(ev.Note) ? tags.TrimStart() : ev.Note + tags;
         string leftIndent = new(' ', indent);
-        string prefix = $"{time}  {label}{duration} ";
+        string prefix = $"{star}{time}  {label}{duration} ";
         string continuationPrefix = leftIndent + new string(' ', prefix.Length);
 
-        int terminalWidth;
-        try
-        {
-            terminalWidth = Console.WindowWidth > 0 ? Console.WindowWidth : 80;
-        }
-        catch
-        {
-            terminalWidth = 80;
-        }
-
+        int terminalWidth = GetTerminalWidth();
         int noteWidth = Math.Max(20, terminalWidth - leftIndent.Length - prefix.Length - 2);
         var lines = WrapTextPreservingParagraphs(note, noteWidth);
 
@@ -696,8 +1120,6 @@ public static class Program
 
             var wrapped = WrapSingleParagraph(paragraph, maxWidth);
             lines.AddRange(wrapped);
-
-            // Preserve one quiet blank line between paragraphs.
             lines.Add("");
         }
 
@@ -762,11 +1184,17 @@ public static class Program
     {
         int notes = events.Count(e => e.Type.Equals("note", StringComparison.OrdinalIgnoreCase));
         int moods = events.Count(e => e.Type.Equals("mood", StringComparison.OrdinalIgnoreCase));
-        int important = events.Count(e => e.Type.Equals("important", StringComparison.OrdinalIgnoreCase)
-            || e.Category.Equals("important", StringComparison.OrdinalIgnoreCase));
+        int important = events.Count(IsImportantEvent);
 
         Console.WriteLine("Summary");
         Console.WriteLine($"{events.Count} event{Plural(events.Count)} • {notes} note{Plural(notes)} • {moods} mood{Plural(moods)} • {important} important");
+    }
+
+    private static bool IsImportantEvent(PulseEvent ev)
+    {
+        return ev.Important
+            || ev.Type.Equals("important", StringComparison.OrdinalIgnoreCase)
+            || ev.Category.Equals("important", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Plural(int count) => count == 1 ? "" : "s";
@@ -811,7 +1239,6 @@ public static class Program
         Console.WriteLine("Quandranea?");
     }
 
-
     private static int CmdYear(string[] rest)
     {
         int year = DateTime.Now.Year;
@@ -829,8 +1256,7 @@ public static class Program
         var important = ReadEvents()
             .Where(e => TryParseIso(e.Timestamp, out var ts)
                 && ts.LocalDateTime.Year == year
-                && (e.Type.Equals("important", StringComparison.OrdinalIgnoreCase)
-                    || e.Category.Equals("important", StringComparison.OrdinalIgnoreCase)))
+                && IsImportantEvent(e))
             .OrderBy(e => ParseIso(e.Timestamp))
             .ToList();
 
@@ -860,33 +1286,12 @@ public static class Program
             string? tags = GetMetaStringArrayDisplay(ev, "tags");
             string tagSuffix = string.IsNullOrWhiteSpace(tags) ? "" : $"  [{tags}]";
 
-            Console.WriteLine($"  {date}  {note}{tagSuffix}");
+            Console.WriteLine($"  {date}  {StarSymbol()} {note}{tagSuffix}");
         }
 
         Console.WriteLine();
         Console.WriteLine($"{important.Count} important event" + (important.Count == 1 ? "" : "s") + " found.");
         return 0;
-    }
-
-    private static void PrintDaySummary(List<PulseEvent> events)
-    {
-        PrintGroup("Sleep", events.Where(e => e.Category == "sleep").ToList());
-        PrintGroup("Meals", events.Where(e => e.Category == "meal").ToList());
-        PrintGroup("Body", events.Where(e => e.Category == "body").ToList());
-        PrintGroup("Mind", events.Where(e => e.Category == "mental").ToList());
-        PrintGroup("Activity", events.Where(e => e.Category == "activity").ToList());
-        PrintGroup("Notes", events.Where(e => e.Category is "custom" or "note").ToList());
-    }
-
-    private static void PrintGroup(string title, List<PulseEvent> events)
-    {
-        if (events.Count == 0)
-            return;
-
-        Console.WriteLine($"{title}:");
-
-        foreach (var ev in events)
-            Console.WriteLine("  " + FormatEventLine(ev).Trim());
     }
 
     private static ParsedCommand ParseCommand(string command, string[] rest)
@@ -935,7 +1340,7 @@ public static class Program
         };
     }
 
-    private static bool TryParseDay(string raw, out DateOnly day)
+    private static bool TryParseDayStrict(string raw, out DateOnly day)
     {
         if (raw.Equals("today", StringComparison.OrdinalIgnoreCase))
         {
@@ -949,8 +1354,7 @@ public static class Program
             return true;
         }
 
-        return DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day)
-            || DateOnly.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out day);
+        return DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
     }
 
     private static bool TryParseFlexibleTime(string raw, out DateTimeOffset timestamp)
@@ -976,9 +1380,7 @@ public static class Program
             "yyyy-MM-ddTHH:mm:sszzz", "yyyy-MM-ddTHH:mmzzz",
             "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm",
             "yyyy-MM-dd h:mmtt", "yyyy-MM-dd h:mm tt",
-            "yyyy-MM-dd H:mm", "yyyy-MM-dd HH:mm",
-            "M/d/yyyy h:mmtt", "M/d/yyyy h:mm tt",
-            "M/d/yyyy H:mm", "M/d/yyyy HH:mm"
+            "yyyy-MM-dd H:mm", "yyyy-MM-dd HH:mm"
         };
 
         foreach (var fmt in formats)
@@ -1000,12 +1402,6 @@ public static class Program
             return true;
         }
 
-        if (DateTimeOffset.TryParse(normalized, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var parsed))
-        {
-            timestamp = parsed;
-            return true;
-        }
-
         return false;
     }
 
@@ -1018,6 +1414,7 @@ public static class Program
             Type = type,
             Category = category,
             Note = note,
+            Important = false,
             Source = "cli",
             Meta = new Dictionary<string, JsonElement>()
         };
@@ -1150,7 +1547,6 @@ public static class Program
         File.Move(tmp, path, overwrite: true);
     }
 
-
     private static bool TryParseTag(string part, out string tag)
     {
         tag = "";
@@ -1255,7 +1651,7 @@ public static class Program
             "dream" => "mental",
             "journal" => "note",
             "note" => "note",
-            "important" => "important",
+            "important" => "note",
             _ => "custom"
         };
     }
@@ -1293,12 +1689,13 @@ public static class Program
     private static string FormatEventLine(PulseEvent ev)
     {
         var ts = ParseIso(ev.Timestamp);
+        string star = IsImportantEvent(ev) ? StarSymbol() + " " : "  ";
         string note = string.IsNullOrWhiteSpace(ev.Note) ? "" : $" — {ev.Note}";
 
         string duration = TryGetMetaInt(ev, "duration_minutes", out var mins)
             ? $" ({FormatMinutes(mins)})"
             : "";
 
-        return $"{FriendlyTime(ts),8}  {HumanType(ev.Type),-18} {ev.Category,-8}{duration}{note}";
+        return $"{star}{FriendlyTime(ts),8}  {HumanType(ev.Type),-18} {DisplayCategory(ev),-8}{duration}{note}";
     }
 }

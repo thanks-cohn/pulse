@@ -578,13 +578,13 @@ TINY SILLY COMMAND GARDEN
 
 
 
-============================================================
+========================
  PULSE V2 IS OUT!!
-============================================================
+========================
 
 Pulse just became more than a tiny life logger.
 
-Pulse V2 introduces category-first tree rendering, important events,
+The TC team introduces category-first tree rendering, important events,
 standard date scopes, and terminal-native structure.
 
 The day is no longer just a list.
@@ -602,9 +602,9 @@ Mark any event as important by adding ! to the command:
   pulse note! "major design breakthrough"
 ```
 Important events render with a star:
-
+```text
   ★ 9:30 AM  fixed the renderer
-
+```
 Old commands still work:
 ```text
   pulse important "launched the new tree system"
@@ -734,23 +734,32 @@ Important events in a range:
 
 Pulse V2 keeps date parsing clean and unambiguous.
 
+
 Supported:
 
-  YYYY-MM-DD     day
-  YYYY-MM        month
-  YYYY-Www       ISO week
+
+    YYYY-MM-DD     day
+    
+    YYYY-MM        month
+
+    YYYY-Www       ISO week
+
 
 Examples:
 
-  2026-05-02
-  2026-05
-  2026-W23
+    2026-05-02
+  
+    2026-05
+
+    2026-W23
 
 Rejected:
 
-  05/02/2026
-  2026/23
-  5 2026
+    05/02/2026
+    
+    2026/23
+  
+    5 2026
 
 No guessing.
 No regional ambiguity.

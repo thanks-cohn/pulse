@@ -596,19 +596,19 @@ Now Pulse can show the shape of what mattered.
 ------------------------------------------------------------
 
 Mark any event as important by adding ! to the command:
-
+```text
   pulse work! "fixed the renderer"
   pulse mood! "realized Pulse has a real identity"
   pulse note! "major design breakthrough"
-
+```
 Important events render with a star:
 
   ★ 9:30 AM  fixed the renderer
 
 Old commands still work:
-
+```text
   pulse important "launched the new tree system"
-
+```
 This now logs a starred note, preserving backward compatibility.
 
 ------------------------------------------------------------
@@ -616,9 +616,9 @@ This now logs a starred note, preserving backward compatibility.
 ------------------------------------------------------------
 
 Pulse V2 adds:
-
+```text
   pulse tree
-
+```
 By default, this shows TODAY as a category-first hierarchy.
 
 Instead of only asking:
@@ -630,7 +630,7 @@ Pulse now asks:
   what kind of day was this?
 
 Example:
-
+```
   Pulse — May 2, 2026
 
   ├── activity
@@ -642,7 +642,7 @@ Example:
   │
   └── meal
       └──   12:00 PM  tacos and coffee
-
+```
 Category first.
 Time preserved.
 Meaning revealed.
@@ -652,81 +652,82 @@ Meaning revealed.
 ------------------------------------------------------------
 
 Today:
-
+```text
   pulse tree
-
+```
 Important events today:
-
+```text
   pulse tree IMPORTANT
-
+```
 Specific day:
 
+```text
   pulse tree 2026-05-02
-
+```
 Important events on a specific day:
-
+```text
   pulse tree IMPORTANT 2026-05-02
-
+```
 ------------------------------------------------------------
  WEEK TREE
 ------------------------------------------------------------
 
 Current ISO week:
-
+```text
   pulse tree week
-
+```
 Week containing a date:
-
+```text
   pulse tree week 2026-05-02
-
+```
 Specific ISO week:
-
+```text
   pulse tree week 2026-W23
-
+```
 Important events this week:
-
+```text
   pulse tree week IMPORTANT
-
+```
 Important events from a specific ISO week:
-
+```text
   pulse tree week IMPORTANT 2026-W23
-
+```
 ------------------------------------------------------------
  MONTH TREE
 ------------------------------------------------------------
 
 Current month:
-
+```text
   pulse tree month
-
+```
 Specific month:
-
+```text
   pulse tree month 2026-05
-
+```
 Month containing a date:
-
+```text
   pulse tree month 2026-05-02
-
+```
 Important events this month:
-
+```text
   pulse tree month IMPORTANT
-
+```
 Important events from a specific month:
-
+```text
   pulse tree month IMPORTANT 2026-05
-
+```
 ------------------------------------------------------------
  RANGE TREE
 ------------------------------------------------------------
 
 Date range:
-
+```text
   pulse tree range 2026-05-01 2026-05-31
-
+```
 Important events in a range:
-
+```text
   pulse tree range IMPORTANT 2026-05-01 2026-05-31
-
+```
 ------------------------------------------------------------
  STANDARD DATE FORMATS ONLY
 ------------------------------------------------------------

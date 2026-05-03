@@ -575,3 +575,236 @@ TINY SILLY COMMAND GARDEN
     pulse note "the house made a sound, probably fine" tag:housemoment tag:shrug
     pulse work "did some work at the computer" tag:focus tag:progress
     pulse important "made a small tool that feels useful" tag:build tag:smallwin
+
+
+
+============================================================
+ PULSE V2 IS OUT!!
+============================================================
+
+Pulse just became more than a tiny life logger.
+
+Pulse V2 introduces category-first tree rendering, important events,
+standard date scopes, and terminal-native structure.
+
+The day is no longer just a list.
+
+Now Pulse can show the shape of what mattered.
+
+------------------------------------------------------------
+ NEW: IMPORTANT EVENTS
+------------------------------------------------------------
+
+Mark any event as important by adding ! to the command:
+
+  pulse work! "fixed the renderer"
+  pulse mood! "realized Pulse has a real identity"
+  pulse note! "major design breakthrough"
+
+Important events render with a star:
+
+  ★ 9:30 AM  fixed the renderer
+
+Old commands still work:
+
+  pulse important "launched the new tree system"
+
+This now logs a starred note, preserving backward compatibility.
+
+------------------------------------------------------------
+ NEW: CATEGORY-FIRST TREE VIEW
+------------------------------------------------------------
+
+Pulse V2 adds:
+
+  pulse tree
+
+By default, this shows TODAY as a category-first hierarchy.
+
+Instead of only asking:
+
+  what happened first?
+
+Pulse now asks:
+
+  what kind of day was this?
+
+Example:
+
+  Pulse — May 2, 2026
+
+  ├── activity
+  │   ├── ★ 9:30 AM   fixed the renderer
+  │   └──   2:00 PM   tested tree output
+  │
+  ├── mental
+  │   └── ★ 3:15 PM   realized Pulse is becoming unique
+  │
+  └── meal
+      └──   12:00 PM  tacos and coffee
+
+Category first.
+Time preserved.
+Meaning revealed.
+
+------------------------------------------------------------
+ TREE COMMANDS
+------------------------------------------------------------
+
+Today:
+
+  pulse tree
+
+Important events today:
+
+  pulse tree IMPORTANT
+
+Specific day:
+
+  pulse tree 2026-05-02
+
+Important events on a specific day:
+
+  pulse tree IMPORTANT 2026-05-02
+
+------------------------------------------------------------
+ WEEK TREE
+------------------------------------------------------------
+
+Current ISO week:
+
+  pulse tree week
+
+Week containing a date:
+
+  pulse tree week 2026-05-02
+
+Specific ISO week:
+
+  pulse tree week 2026-W23
+
+Important events this week:
+
+  pulse tree week IMPORTANT
+
+Important events from a specific ISO week:
+
+  pulse tree week IMPORTANT 2026-W23
+
+------------------------------------------------------------
+ MONTH TREE
+------------------------------------------------------------
+
+Current month:
+
+  pulse tree month
+
+Specific month:
+
+  pulse tree month 2026-05
+
+Month containing a date:
+
+  pulse tree month 2026-05-02
+
+Important events this month:
+
+  pulse tree month IMPORTANT
+
+Important events from a specific month:
+
+  pulse tree month IMPORTANT 2026-05
+
+------------------------------------------------------------
+ RANGE TREE
+------------------------------------------------------------
+
+Date range:
+
+  pulse tree range 2026-05-01 2026-05-31
+
+Important events in a range:
+
+  pulse tree range IMPORTANT 2026-05-01 2026-05-31
+
+------------------------------------------------------------
+ STANDARD DATE FORMATS ONLY
+------------------------------------------------------------
+
+Pulse V2 keeps date parsing clean and unambiguous.
+
+Supported:
+
+  YYYY-MM-DD     day
+  YYYY-MM        month
+  YYYY-Www       ISO week
+
+Examples:
+
+  2026-05-02
+  2026-05
+  2026-W23
+
+Rejected:
+
+  05/02/2026
+  2026/23
+  5 2026
+
+No guessing.
+No regional ambiguity.
+No weird date bugs.
+
+------------------------------------------------------------
+ WHY THIS MATTERS
+------------------------------------------------------------
+
+Most loggers show time.
+
+Pulse V2 shows structure.
+
+Most terminal tools flatten your day into lines.
+
+Pulse V2 turns your day into a tree:
+
+  category → chronological events → important signals
+
+This makes Pulse feel less like a log dump and more like a
+terminal-native map of your life.
+
+------------------------------------------------------------
+ CORE IDENTITY
+------------------------------------------------------------
+
+Pulse V2 is:
+
+  terminal-native
+  JSONL-backed
+  category-first
+  chronologically honest
+  important-aware
+  multiline-note friendly
+  shell-readable
+  auditable
+
+No cloud required.
+No hidden database.
+No heavy framework.
+
+Just plain events rendered with meaning.
+
+------------------------------------------------------------
+ TAGLINE
+------------------------------------------------------------
+
+STAR IT! STAR IT! THEN STAR IT AGAIN!
+
+============================================================
+
+
+
+
+
+
+
+
